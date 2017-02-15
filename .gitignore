@@ -1,0 +1,8 @@
+*.swp
+*.stash
+Makefile*
+build/*
+*.so
+*.dylib
+*.o
+blds
