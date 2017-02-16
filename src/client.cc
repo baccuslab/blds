@@ -16,7 +16,8 @@
 Client::Client(QTcpSocket* sock, QObject* parent) :
 	QObject(parent),
 	m_socket(sock),
-	m_stream(sock)
+	m_stream(sock),
+	m_requestedAllData(false)
 {
 	m_socket->setParent(this);
 	m_stream.setByteOrder(QDataStream::LittleEndian);
@@ -148,16 +149,15 @@ void Client::handleSourceGetMessage(quint32 size)
 
 void Client::handleDataRequestMessage(quint32 /* size */)
 {
-	double start, stop;
+	float start, stop;
 	m_stream >> start >> stop;
 	emit dataRequest(this, start, stop);
 }
 
 void Client::handleAllDataRequestMessage(quint32 /* size */)
 {
-	bool request;
-	m_stream >> request;
-	emit allDataRequest(this, request);
+	m_stream >> m_requestedAllData;
+	emit allDataRequest(this, m_requestedAllData);
 }
 
 void Client::sendSourceCreateResponse(bool success, const QByteArray& msg)
@@ -184,9 +184,9 @@ void Client::sendServerSetResponse(const QByteArray& param, bool success,
 		const QByteArray& msg)
 {
 	QByteArray buffer { "set\n" };
+	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
 	buffer.append(param);
 	buffer.append("\n");
-	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
 	buffer.append(msg);
 	m_stream << buffer;
 }
@@ -195,9 +195,9 @@ void Client::sendServerGetResponse(const QByteArray& param, bool success,
 		const QVariant& data)
 {
 	QByteArray buffer { "get\n" };
+	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
 	buffer.append(param);
 	buffer.append("\n");
-	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
 	buffer.append(encodeServerGetResponseData(param, data));
 	m_stream << buffer;
 }
@@ -206,9 +206,9 @@ void Client::sendSourceSetResponse(const QByteArray& param, bool success,
 		const QByteArray& msg)
 {
 	QByteArray buffer { "set-source\n" };
+	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
 	buffer.append(param);
 	buffer.append("\n");
-	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
 	buffer.append(msg);
 	m_stream << buffer;
 }
@@ -217,8 +217,9 @@ void Client::sendSourceGetResponse(const QByteArray& param, bool success,
 		const QVariant& data)
 {
 	QByteArray buffer { "get-source\n" };
-	buffer.append(param);
 	buffer.append(reinterpret_cast<const char*>(&success), sizeof(success));
+	buffer.append(param);
+	buffer.append("\n");
 	if (success) {
 		buffer.append(encodeSourceGetResponseData(param, data));
 	} else {
@@ -280,9 +281,13 @@ QByteArray Client::encodeSourceGetResponseData(const QByteArray& param,
 
 void Client::sendDataFrame(const DataFrame& frame)
 {
-	QByteArray buffer { "data\n" };
-	buffer.append(frame.serialize());
-	m_stream << buffer;
+	QByteArray msg { "data\n" };
+	auto msgSize = msg.size();
+	quint32 totalSize = msgSize + frame.bytesize();
+	msg.resize(totalSize);
+	frame.serializeInto(msg.data() + msgSize);
+	m_stream << totalSize;
+	m_socket->write(msg);
 }
 
 void Client::sendErrorMessage(const QByteArray& msg)
@@ -291,7 +296,7 @@ void Client::sendErrorMessage(const QByteArray& msg)
 	m_stream << (err + msg);
 }
 
-void Client::addPendingDataRequest(double start, double stop)
+void Client::addPendingDataRequest(float start, float stop)
 {
 	m_pendingRequests.append({ start, stop });
 }
@@ -316,7 +321,7 @@ int Client::countPendingRequests() const
 	return m_pendingRequests.size();
 }
 
-int Client::numServicableRequests(double time) const
+int Client::numServicableRequests(float time) const
 {
 	return std::count_if(m_pendingRequests.begin(), m_pendingRequests.end(),
 			[time](const Client::DataRequest& req) -> bool { 

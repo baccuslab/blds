@@ -40,11 +40,26 @@ class DataFrame {
 		 * \param stop The stop time of this chunk of data.
 		 * \param data The actual samples of data, of shape (nsamples, nchannels).
 		 */
-		DataFrame(double start, double stop, const Samples& data) :
+		DataFrame(float start, float stop, const Samples& data) :
 			m_start(start),
 			m_stop(stop),
 			m_data(data)
 		{
+		}
+
+		/*! Construct a frame.
+		 * \param start The start time of this chunk of data.
+		 * \param stop The stop time of this chunk of data.
+		 * \param data The actual samples, of shape (nsamples, nchannels).
+		 *
+		 * This overload of the construct will move from the samples. This
+		 * should be much faster than any of the copying constructors.
+		 */
+		DataFrame(float start, float stop, Samples&& samples) :
+			m_start(start),
+			m_stop(stop)
+		{
+			m_data.swap(samples);
 		}
 
 		/*! Copy-assign a data frame. */
@@ -78,13 +93,13 @@ class DataFrame {
 		}
 
 		/*! Return the start time of this frame. */
-		double start() const
+		float start() const
 		{
 			return m_start;
 		}
 
 		/*! Return the stop time of this frame. */
-		double stop() const
+		float stop() const
 		{
 			return m_stop;
 		}
@@ -107,11 +122,18 @@ class DataFrame {
 			return m_data.n_rows;
 		}
 
+		/*! Return the size of this frame when serialized. */
+		quint32 bytesize() const 
+		{
+			return (2 * sizeof(float) + 2 * sizeof(quint32) +
+					sizeof(DataType) * m_data.n_elem);
+		}
+
 		/*! Serialize this frame to an array of bytes.
 		 * This is used to send frames to remote clients.
 		 * Data is serialize in the following way:
-		 * 	- start time (double)
-		 * 	- stop time (double)
+		 * 	- start time (float)
+		 * 	- stop time (float)
 		 * 	- number of samples (uint32_t)
 		 * 	- number of channels (uint32_t)
 		 * 	- actual data (array of int16_t)
@@ -119,22 +141,50 @@ class DataFrame {
 		QByteArray serialize() const
 		{
 			QByteArray ba;
-			ba.reserve(2 * sizeof(m_start) + 2 * sizeof(quint32) * 
+			ba.resize(2 * sizeof(m_start) + 2 * sizeof(quint32) * 
 					m_data.n_elem * sizeof(DataType));
-			ba.append(reinterpret_cast<const char*>(&m_start), sizeof(m_start));
-			ba.append(reinterpret_cast<const char*>(&m_stop), sizeof(m_stop));
-			auto nsamp = nsamples();
-			ba.append(reinterpret_cast<const char*>(&nsamp), sizeof(nsamp));
-			auto nchan = nchannels();
-			ba.append(reinterpret_cast<const char*>(&nchan), sizeof(nchan));
-			ba.append(reinterpret_cast<const char*>(m_data.memptr()), 
-					m_data.n_elem * sizeof(DataType));
+			serializeInto(ba.data());
 			return ba;
 		}
 
+		/*! Serialize directly into a buffer.
+		 * No checks are performed that the buffer is large enough to
+		 * hold the serialized frame. Use this with caution.
+		 */
+		void serializeInto(char *buffer) const
+		{
+			std::memcpy(buffer, &m_start, sizeof(m_start));
+			std::memcpy(buffer + sizeof(m_start), &m_stop, sizeof(m_stop));
+			auto nsamp = nsamples();
+			std::memcpy(buffer + 2 * sizeof(m_start), &nsamp, sizeof(nsamp));
+			auto nchan = nchannels();
+			std::memcpy(buffer + 2 * sizeof(m_start) + sizeof(nchan), 
+					&nchan, sizeof(nchan));
+			std::memcpy(buffer + 2 * sizeof(m_start) + 2 * sizeof(nsamp),
+					m_data.memptr(), m_data.n_elem * sizeof(DataType));
+		}
+
+		static DataFrame deserialize(const QByteArray& buffer)
+		{
+			DataFrame frame;
+			std::memcpy(&frame.m_start, buffer.data(), sizeof(frame.m_start));
+			std::memcpy(&frame.m_stop, buffer.data() + sizeof(m_start), 
+					sizeof(frame.m_stop));
+			quint32 nsamples, nchannels;
+			std::memcpy(&nsamples, buffer.data() + 
+					2 * sizeof(m_start), sizeof(nsamples));
+			std::memcpy(&nchannels, buffer.data() + 
+					2 * sizeof(m_start) + sizeof(nsamples), sizeof(nchannels));
+			frame.m_data.set_size(nsamples, nchannels);
+			std::memcpy(frame.m_data.memptr(), buffer.data() + 
+					2 * sizeof(m_start) + 2 * sizeof(nchannels),
+					sizeof(DataFrame::DataType) * frame.m_data.n_elem);
+			return frame;
+		}
+
 	private:
-		double m_start;
-		double m_stop;
+		float m_start;
+		float m_stop;
 		Samples m_data;
 };
 

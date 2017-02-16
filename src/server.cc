@@ -246,6 +246,7 @@ void Server::handleClientDisconnection(Client *client)
 	QObject::disconnect(client, 0, 0, 0);
 	clients.removeOne(client);
 	client->deleteLater();
+	nclients--;
 }
 
 void Server::handleClientMessageError(Client *client, const QByteArray& msg)
@@ -478,14 +479,14 @@ void Server::handleNewDataAvailable(Samples samples)
 	checkRecordingFinished();
 }
 
-void Server::sendDataToClients(const Samples& samples)
+void Server::sendDataToClients(Samples& samples)
 {
 	/* Construct the current frame */
 	auto sr = file->sampleRate();
 	auto stopSample = file->nsamples();
 	auto startSample = stopSample - samples.n_rows;
-	auto start = static_cast<double>(startSample / sr);
-	auto stop = static_cast<double>(stopSample / sr);
+	auto start = static_cast<float>(startSample / sr);
+	auto stop = static_cast<float>(stopSample / sr);
 	DataFrame frame {start, stop, std::move(samples) };
 
 	Samples tmpSamples;
@@ -503,7 +504,7 @@ void Server::sendDataToClients(const Samples& samples)
 			auto begin = static_cast<int>(request.start * sr);
 			auto end = static_cast<int>(request.stop * sr);
 			file->data(begin, end, tmpSamples);
-			client->sendDataFrame({request.start, request.stop, tmpSamples});
+			client->sendDataFrame({request.start, request.stop, std::move(tmpSamples)});
 		}
 	}
 }
@@ -715,13 +716,13 @@ void Server::handleClientStopRecordingMessage(Client *client)
 	}
 	
 	qWarning().noquote() << msg;
-	client->sendStartRecordingResponse(false, msg);
+	client->sendStopRecordingResponse(false, msg);
 }
 
-void Server::handleClientDataRequest(Client *client, double start, double stop)
+void Server::handleClientDataRequest(Client *client, float start, float stop)
 {
 	if (file) {
-		if (recordingLength > stop) {
+		if (stop > recordingLength) {
 			client->sendErrorMessage(
 					"Cannot request more data than will exist in the recording");
 		} else {
@@ -729,11 +730,12 @@ void Server::handleClientDataRequest(Client *client, double start, double stop)
 			if (file->length() >= stop) {
 
 				/* If data is currently available, send it immediately */
-				auto startSample = static_cast<int>(start / file->sampleRate());
-				auto endSample = static_cast<int>(stop / file->sampleRate());
+				auto sr = file->sampleRate();
+				auto startSample = static_cast<int>(start * sr);
+				auto endSample = static_cast<int>(stop * sr);
 				DataFrame::Samples data;
 				file->data(startSample, endSample, data);
-				client->sendDataFrame(DataFrame{start, stop, data});
+				client->sendDataFrame(DataFrame{start, stop, std::move(data)});
 
 			} else {
 				/* Data is not yet available, add this to the list of pending
@@ -788,6 +790,8 @@ void Server::connectClientSignals(Client *client)
 			this, &Server::handleClientStopRecordingMessage);
 	QObject::connect(client, &Client::dataRequest,
 			this, &Server::handleClientDataRequest);
+	QObject::connect(client, &Client::allDataRequest,
+			this, &Server::handleClientAllDataRequest);
 }
 
 void Server::checkRecordingFinished()

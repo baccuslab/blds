@@ -163,7 +163,7 @@ class Server : public QObject {
 		 * If the request will *never* be available, e.g. the client requests
 		 * data past the end of the recording, an error message will be returned.
 		 */
-		void handleClientDataRequest(Client *client, double start, double stop);
+		void handleClientDataRequest(Client *client, float start, float stop);
 
 		/*! Handle a request from the client to get all available data.
 		 * \param client The client emitting the request.
@@ -235,7 +235,7 @@ class Server : public QObject {
 				Tufao::HttpServerResponse& response);
 
 		/* Send data to any clients as it arrives. */
-		void sendDataToClients(const Samples& samples);
+		void sendDataToClients(Samples& samples);
 
 		void checkRecordingFinished();
 

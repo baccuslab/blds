@@ -28,8 +28,8 @@ class Client : public QObject {
 		 * requests for data.
 		 */
 		struct DataRequest {
-			double start;
-			double stop;
+			float start;
+			float stop;
 		};
 
 		/*! Construct a Client from a socket. */
@@ -63,7 +63,7 @@ class Client : public QObject {
 		 * nor are attempts made to coalesce data into fewer chunks or 
 		 * de-duplicate frames sent to the client.
 		 */
-		void addPendingDataRequest(double start, double stop);
+		void addPendingDataRequest(float start, float stop);
 
 		/*! Return the number of pending data requests. */
 		int countPendingRequests() const;
@@ -77,7 +77,7 @@ class Client : public QObject {
 		/* Return the number of servicable requests, based on the time.
 		 * \param time Requests that end before this time are considered servicable.
 		 */
-		int numServicableRequests(double time) const;
+		int numServicableRequests(float time) const;
 
 	public slots:
 
@@ -217,7 +217,7 @@ class Client : public QObject {
 		 * \param start The start time of the data chunk to receive.
 		 * \param stop The stop time of the data chunk to receive.
 		 */
-		void dataRequest(Client *client, double start, double stop);
+		void dataRequest(Client *client, float start, float stop);
 
 		/*! Emitted when the client requests all available data from managed source.
 		 * \param client The client which received the message.
