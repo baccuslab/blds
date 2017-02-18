@@ -8,7 +8,7 @@
 #include "client.h"
 
 #include "libdata-source/include/configuration.h"
-#include "libdata-source/include/base-source.h" // for (de)serialization methods
+#include "libdata-source/include/data-source.h" // for (de)serialization methods
 
 #include <cstring> // std::memcpy
 #include <algorithm> // std::count_if
@@ -135,7 +135,7 @@ void Client::handleSourceSetMessage(quint32 size)
 	param.chop(1);
 
 	QByteArray buffer = m_socket->read(size);
-	QVariant data = BaseSource::deserialize(param, buffer);
+	QVariant data = datasource::deserialize(param, buffer);
 	emit setSourceParamMessage(this, param, data);
 }
 
@@ -221,7 +221,7 @@ void Client::sendSourceGetResponse(const QByteArray& param, bool success,
 	buffer.append(param);
 	buffer.append("\n");
 	if (success) {
-		buffer.append(encodeSourceGetResponseData(param, data));
+		buffer.append(datasource::serialize(param, data));
 	} else {
 		buffer.append(data.toByteArray()); // error message
 	}
@@ -271,12 +271,6 @@ QByteArray Client::encodeServerGetResponseData(const QByteArray& param,
 		buffer = data.toByteArray();
 	}
 	return buffer;
-}
-
-QByteArray Client::encodeSourceGetResponseData(const QByteArray& param,
-		const QVariant& data)
-{
-	return BaseSource::serialize(param, data);
 }
 
 void Client::sendDataFrame(const DataFrame& frame)

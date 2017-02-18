@@ -78,7 +78,8 @@ class DataFrame {
 		}
 
 		/*! Move-construct a data frame. */
-		DataFrame(DataFrame&& other)
+		DataFrame(DataFrame&& other) :
+			DataFrame()
 		{
 			swap(*this, other);
 		}
@@ -131,7 +132,7 @@ class DataFrame {
 
 		/*! Serialize this frame to an array of bytes.
 		 * This is used to send frames to remote clients.
-		 * Data is serialize in the following way:
+		 * Data is serialized in the following way:
 		 * 	- start time (float)
 		 * 	- stop time (float)
 		 * 	- number of samples (uint32_t)
@@ -149,7 +150,10 @@ class DataFrame {
 
 		/*! Serialize directly into a buffer.
 		 * No checks are performed that the buffer is large enough to
-		 * hold the serialized frame. Use this with caution.
+		 * hold the serialized frame, so use with caution. However, you
+		 * can call the `bytesize()` method to learn the size of a 
+		 * DataFrame when serialized, and then allocate a buffer of that
+		 * size into which the frame is serialized.
 		 */
 		void serializeInto(char *buffer) const
 		{
@@ -164,6 +168,7 @@ class DataFrame {
 					m_data.memptr(), m_data.n_elem * sizeof(DataType));
 		}
 
+		/* Deserialize a DataFrame from an array of bytes. */
 		static DataFrame deserialize(const QByteArray& buffer)
 		{
 			DataFrame frame;

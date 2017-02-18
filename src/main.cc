@@ -13,9 +13,11 @@
 #include <cstdlib> 	// abort, exit
 #include <iostream>
 
-/* File stream to which logging information is written. */
+/*! File stream to which logging information is written. */
 static FILE* logfile;
 
+
+/*! Method used for writing logs from the BLDS. */
 void logMessageHandler(QtMsgType type, const QMessageLogContext& context,
 		const QString& message)
 {
@@ -53,6 +55,12 @@ void logMessageHandler(QtMsgType type, const QMessageLogContext& context,
 	std::fflush(logfile);
 }
 
+
+/*! Create a logfile and install the above message handler to it.
+ * 
+ * This uses a logfile in the machine's temporary directory if the 
+ * `--quiet` flag is passed, otherwise stdout is used.
+ */
 void setupLogging(bool quiet)
 {
 	if (quiet) {
@@ -71,6 +79,11 @@ void setupLogging(bool quiet)
 	qInstallMessageHandler(logMessageHandler);
 }
 
+/*! Run the application.
+ *
+ * This method parses the command-line, and creates a Server as the main object
+ * of the application.
+ */
 int main(int argc, char *argv[])
 {
 	QCoreApplication app(argc, argv);
@@ -85,7 +98,8 @@ int main(int argc, char *argv[])
 	parser.addHelpOption();
 	parser.addOption({ "quiet",
 			"Write logging information to a log file "
-			"rather than the default standard output."});
+			"rather than the default standard output." 
+			" The logfile will be at $TMPDIR/blds.<pid>"});
 	parser.process(app);
 	setupLogging(parser.isSet("quiet"));
 

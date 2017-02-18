@@ -258,21 +258,8 @@ void Server::handleClientMessageError(Client *client, const QByteArray& msg)
 
 void Server::createSource(const QByteArray& type, const QByteArray& location)
 {
-	auto loc = QString::fromUtf8(location);
-	if (type == "file") {
-		source = new FileSource(loc);
-	} else if (type == "mcs") {
-#ifdef Q_OS_WIN
-		source = new McsSource(loc);
-#else
-		throw std::invalid_argument("Cannot create MCS sources on non-Windows machines.");
-#endif
-	} else if (type == "hidens") {
-		source = new HidensSource(loc);
-	} else {
-		auto msg = ("Unknown source type: " + type).constData();
-		throw std::invalid_argument(msg);
-	}
+	source = datasource::create(QString::fromUtf8(type), 
+			QString::fromUtf8(location));
 }
 
 void Server::createFile()
@@ -322,14 +309,14 @@ void Server::initSource()
 	 * requests.
 	 */
 	QObject::connect(this, &Server::requestSourceStatus,
-			source, &BaseSource::requestStatus);
-	QObject::connect(source, &BaseSource::status,
+			source, &datasource::BaseSource::requestStatus);
+	QObject::connect(source, &datasource::BaseSource::status,
 			this, [&](QVariantMap newStatus) {
 				sourceStatus.swap(newStatus);
 			});
 
 	/* Retrieve new data available from the source */
-	QObject::connect(source, &BaseSource::dataAvailable,
+	QObject::connect(source, &datasource::BaseSource::dataAvailable,
 			this, &Server::handleNewDataAvailable);
 
 	/*
@@ -338,21 +325,21 @@ void Server::initSource()
 	 * server to the source.
 	 */
 	QObject::connect(this, &Server::requestSourceInitialize,
-			source, &BaseSource::initialize);
+			source, &datasource::BaseSource::initialize);
 	QObject::connect(this, &Server::requestSourceGet,
-			source, &BaseSource::get);
+			source, &datasource::BaseSource::get);
 	QObject::connect(this, &Server::requestSourceSet,
-			source, &BaseSource::set);
+			source, &datasource::BaseSource::set);
 	QObject::connect(this, &Server::requestSourceStartStream,
-			source, &BaseSource::startStream);
+			source, &datasource::BaseSource::startStream);
 	QObject::connect(this, &Server::requestSourceStopStream,
-			source, &BaseSource::stopStream);
+			source, &datasource::BaseSource::stopStream);
 
 	/*
 	 * Pass messages indicating the response of the above
 	 * client requests from the source to the server.
 	 */
-	QObject::connect(source, &BaseSource::error,
+	QObject::connect(source, &datasource::BaseSource::error,
 			this, &Server::handleSourceError);
 
 	/*
@@ -388,7 +375,7 @@ void Server::handleSourceSetResponse(Client *client,
 		const QString& param, bool success, const QString& msg)
 {
 	/* Disconnect this handler */
-	QObject::disconnect(source, &BaseSource::setResponse, 0, 0);
+	QObject::disconnect(source, &datasource::BaseSource::setResponse, 0, 0);
 
 	if (success) {
 
@@ -413,7 +400,7 @@ void Server::handleSourceInitialized(Client *client, bool success, const QString
 	if (success) {
 
 		/* Disconnect the initialized() handler */
-		QObject::disconnect(source, &BaseSource::initialized, 0, 0);
+		QObject::disconnect(source, &datasource::BaseSource::initialized, 0, 0);
 		
 		/* Request the status from the source */
 		emit requestSourceStatus();
@@ -432,7 +419,7 @@ void Server::handleSourceInitialized(Client *client, bool success, const QString
 
 void Server::handleSourceStreamStarted(Client *client, bool success, const QString& msg)
 {
-	QObject::disconnect(source, &BaseSource::streamStarted, 0, 0);
+	QObject::disconnect(source, &datasource::BaseSource::streamStarted, 0, 0);
 	if (success) {
 		qInfo().noquote() << "Recording started by client at" << client->address();
 	} else {
@@ -443,7 +430,7 @@ void Server::handleSourceStreamStarted(Client *client, bool success, const QStri
 
 void Server::handleSourceStreamStopped(Client *client, bool success, const QString& msg)
 {
-	QObject::disconnect(source, &BaseSource::streamStopped, 0, 0);
+	QObject::disconnect(source, &datasource::BaseSource::streamStopped, 0, 0);
 	if (success) {
 		qInfo().noquote() << "Recording stopped after" << file->length() 
 			<< "seconds by client at" << client->address();
@@ -466,7 +453,7 @@ void Server::handleSourceError(const QString& msg)
 	deleteSource();
 }
 
-void Server::handleNewDataAvailable(Samples samples)
+void Server::handleNewDataAvailable(datasource::Samples samples)
 {
 	/* Append data to file */
 	file->setData(file->nsamples(), file->nsamples() + samples.n_rows, samples);
@@ -479,7 +466,7 @@ void Server::handleNewDataAvailable(Samples samples)
 	checkRecordingFinished();
 }
 
-void Server::sendDataToClients(Samples& samples)
+void Server::sendDataToClients(datasource::Samples& samples)
 {
 	/* Construct the current frame */
 	auto sr = file->sampleRate();
@@ -489,7 +476,7 @@ void Server::sendDataToClients(Samples& samples)
 	auto stop = static_cast<float>(stopSample / sr);
 	DataFrame frame {start, stop, std::move(samples) };
 
-	Samples tmpSamples;
+	datasource::Samples tmpSamples;
 
 	/* Send any available data to clients. */
 	for (auto *client : clients) {
@@ -525,10 +512,11 @@ void Server::handleClientCreateSourceMessage(Client *client,
 			 * if the source couldn't be reached or created for some other 
 			 * reason.
 			 */
-			createSource(type, location);
+			source = datasource::create(QString::fromUtf8(type), 
+					QString::fromUtf8(location));
 
 			/* Connect handler to the initialized() signal of the source. */
-			QObject::connect(source, &BaseSource::initialized,
+			QObject::connect(source, &datasource::BaseSource::initialized,
 					this, [&, this, client](bool success, const QString& msg) -> void {
 						handleSourceInitialized(client, success, msg);
 					});
@@ -635,7 +623,7 @@ void Server::handleClientSetSourceParamMessage(Client *client,
 		const QByteArray& param, const QVariant& data)
 {
 	/* Connect handler for the response to notify the correct client. */
-	QObject::connect(source, &BaseSource::setResponse,
+	QObject::connect(source, &datasource::BaseSource::setResponse,
 			this, [this, client](const QString& param, bool success, 
 					const QString& msg) -> void {
 				handleSourceSetResponse(client, param, success, msg);
@@ -671,7 +659,7 @@ void Server::handleClientStartRecordingMessage(Client *client)
 				createFile();
 
 				/* Install handler for dealing with when the source stream starts. */
-				QObject::connect(source, &BaseSource::streamStarted,
+				QObject::connect(source, &datasource::BaseSource::streamStarted,
 						this, [this, client](bool success, const QString& msg) -> void {
 							handleSourceStreamStarted(client, success, msg);
 					});
@@ -700,7 +688,7 @@ void Server::handleClientStopRecordingMessage(Client *client)
 	if (source) {
 		if (file) {
 			/* Install handler for dealing with when the source stream stops. */
-			QObject::connect(source, &BaseSource::streamStopped,
+			QObject::connect(source, &datasource::BaseSource::streamStopped,
 					this, [this, client](bool success, const QString& msg) -> void {
 						handleSourceStreamStopped(client, success, msg);
 				});
@@ -803,7 +791,7 @@ void Server::checkRecordingFinished()
 
 void Server::handleRecordingFinished(double length)
 {
-	QObject::disconnect(source, &BaseSource::streamStopped, 0, 0);
+	QObject::disconnect(source, &datasource::BaseSource::streamStopped, 0, 0);
 	emit requestSourceStopStream();
 	qInfo().noquote() << length << "seconds of data finished streaming to data file.";
 	file.reset(nullptr);
