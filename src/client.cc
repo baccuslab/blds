@@ -259,13 +259,25 @@ QByteArray Client::encodeServerGetResponseData(const QByteArray& param,
 {
 	QByteArray buffer;
 	if ( (param == "save-file") || 
-			(param == "save-directory") ) {
-		buffer = data.toByteArray(); // filename, should be a string
+			(param == "save-directory") || 
+			(param == "source-type") ||
+			(param == "source-location") ||
+			(param == "start-time") ) {
+		buffer = data.toByteArray(); // string type
 	} else if ( (param == "recording-length") ||
 			(param == "read-interval") ) {
 		buffer.resize(sizeof(quint32));
 		quint32 length = static_cast<quint32>(data.toUInt());
 		std::memcpy(buffer.data(), &length, sizeof(length));
+	} else if (param == "recording-position") {
+		buffer.resize(sizeof(float));
+		auto pos = static_cast<float>(data.toFloat());
+		std::memcpy(buffer.data(), &pos, sizeof(pos));
+	} else if ( (param == "recording-exists") ||
+			(param == "source-exists") ) {
+		buffer.resize(sizeof(bool));
+		auto exists = data.toBool();
+		std::memcpy(buffer.data(), &exists, sizeof(exists));
 	} else {
 		/* Error message */
 		buffer = data.toByteArray();

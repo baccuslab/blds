@@ -198,6 +198,18 @@ void Server::serveStatus(Tufao::HttpServerRequest& request,
 			dc.append(c->address());
 		}
 
+		/* Collect information about any current recording. */
+		bool recordingExists = file != nullptr;
+		double recordingPosition = 0.;
+		if (recordingExists) {
+			recordingPosition = file->length();
+		}
+
+		/* Collect information about any current data source. */
+		bool sourceExists = source != nullptr;
+		QString sourceType = (sourceExists ? 
+				sourceStatus["source-type"].toString() : "none");
+
 		/* Insert the server information */
 		QJsonObject json {
 				{ "start-time", startTime.toString() },
@@ -205,6 +217,11 @@ void Server::serveStatus(Tufao::HttpServerRequest& request,
 				{ "save-file", saveFile }, 
 				{ "recording-length", static_cast<qint64>(recordingLength) },
 				{ "read-interval", static_cast<qint64>(readInterval) },
+				{ "recording-exists", recordingExists },
+				{ "recording-position", recordingPosition },
+				{ "source-exists", sourceExists },
+				{ "source-type", sourceType },
+				{ "source-location", sourceExists ? sourceStatus["location"].toString() : "" },
 				{ "clients", dc }
 		};
 
@@ -254,12 +271,6 @@ void Server::handleClientMessageError(Client *client, const QByteArray& msg)
 	qWarning().noquote() << "Error communicating with client at" << client->address() 
 		<< ":" << msg;
 	client->sendErrorMessage(msg);
-}
-
-void Server::createSource(const QByteArray& type, const QByteArray& location)
-{
-	source = datasource::create(QString::fromUtf8(type), 
-			QString::fromUtf8(location));
 }
 
 void Server::createFile()
@@ -513,7 +524,7 @@ void Server::handleClientCreateSourceMessage(Client *client,
 			 * reason.
 			 */
 			source = datasource::create(QString::fromUtf8(type), 
-					QString::fromUtf8(location));
+					QString::fromUtf8(location), static_cast<int>(readInterval));
 
 			/* Connect handler to the initialized() signal of the source. */
 			QObject::connect(source, &datasource::BaseSource::initialized,
@@ -567,7 +578,7 @@ void Server::handleClientSetServerParamMessage(Client *client,
 		 */
 		msg = "Cannot set server parameters while a recording is active. "
 				"Stop it first.";
-		qWarning() << msg;
+		qWarning().noquote() << msg;
 
 	} else {
 
@@ -612,6 +623,24 @@ void Server::handleClientGetServerParamMessage(Client *client, const QByteArray&
 	} else if (param == "read-interval") {
 		valid = true;
 		data = readInterval;
+	} else if (param == "recording-exists") {
+		valid = true;
+		data = file != nullptr;
+	} else if (param == "recording-position") {
+		valid = true;
+		data = (file) ? static_cast<float>(file->length()) : 0.0f;
+	} else if (param == "source-exists") {
+		valid = true;
+		data = source != nullptr;
+	} else if (param == "source-type") {
+		valid = true;
+		data = sourceStatus["source-type"].toString().toUtf8();
+	} else if (param == "start-time") {
+		valid = true;
+		data = startTime.toString().toUtf8();
+	} else if (param == "source-location") {
+		valid = true;
+		data = sourceStatus["location"].toString().toUtf8();
 	} else {
 		valid = false;
 		data = ("Unknown parameter type: " + param);

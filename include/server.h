@@ -325,11 +325,10 @@ class Server : public QObject {
 		/* Connect the signals and slots for communication with a new client. */
 		void connectClientSignals(Client *client);
 
-		/* Create a source of the given type at the given location. */
-		void createSource(const QByteArray& type, const QByteArray& location);
-
+		/* Create a data file into which new data will be saved. */
 		void createFile();
 
+		/* Delete the currently-managed data source. */
 		void deleteSource();
 
 		/* Initialize the communcation between the data source and this object. */
