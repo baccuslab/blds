@@ -53,11 +53,17 @@ void Server::readConfigFile()
 	/* Check if the blds.conf file exists */
 	auto file = QFileInfo{QCoreApplication::applicationDirPath(), "blds.conf"};
 	if (!file.exists()) {
-		qWarning("No configuration file found! Using defaults for all values.");
-		httpPort = DefaultHttpPort;
-		port = DefaultClientPort;
-		maxConnections = DefaultMaxConnections;
-		return;
+		/* Try the above directory. */
+		auto dir = file.dir();
+		dir.cdUp();
+		file = QFileInfo{dir.path(), "blds.conf"};
+		if (!file.exists()) {
+			qWarning("No configuration file found! Using defaults for all values.");
+			httpPort = DefaultHttpPort;
+			port = DefaultClientPort;
+			maxConnections = DefaultMaxConnections;
+			return;
+		}
 	}
 
 	/* Read settings from the file */

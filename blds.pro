@@ -24,8 +24,8 @@ CONFIG += c++11 debug_and_release link_pkgconfig
 PKGCONFIG += tufao1
 
 QMAKE_RPATHDIR += \
-	$$(PWD)/../libdata-source/lib \
-	$$(PWD)/../libdatafile/lib
+	../libdata-source/lib \
+	../libdatafile/lib
 
 QMAKE_CXXFLAGS += -Wno-attributes
 
@@ -33,11 +33,12 @@ mac {
 	CONFIG -= app_bundle
 }
 
+LIBS += -L../libdata-source/lib -L/usr/local/lib -L../libdatafile/lib
 win32 {
 	CONFIG += embed_manifest_exe console
+	LIBS += -ldata-source0 -ldatafile0 -lhdf5_cpp -lhdf5
 } else {
-	LIBS += -L../libdata-source/lib -L/usr/local/lib -L../libdatafile/lib \
-		-ldata-source -ldatafile -lhdf5_cpp -lhdf5
+	LIBS += -ldata-source -ldatafile -lhdf5_cpp -lhdf5
 }
 
 # Input
