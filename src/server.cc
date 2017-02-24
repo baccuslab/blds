@@ -332,9 +332,6 @@ void Server::initSource()
 				sourceStatus.swap(newStatus);
 			});
 
-	/* Retrieve new data available from the source */
-	QObject::connect(source, &datasource::BaseSource::dataAvailable,
-			this, &Server::handleNewDataAvailable);
 
 	/*
 	 * Pass messages indicating a client request for
@@ -439,6 +436,7 @@ void Server::handleSourceStreamStarted(Client *client, bool success, const QStri
 	QObject::disconnect(source, &datasource::BaseSource::streamStarted, 0, 0);
 	if (success) {
 		qInfo().noquote() << "Recording started by client at" << client->address();
+		qInfo().noquote() << "Recording data to" << saveDirectory + saveFile;
 	} else {
 		qWarning().noquote() << "Could not start recording:" << msg;
 	}
@@ -589,10 +587,18 @@ void Server::handleClientSetServerParamMessage(Client *client,
 	} else {
 
 		if (param == "save-file") { 
-			saveFile = data.toString();
-			qInfo().noquote() << "Client at" << client->address() 
-				<< "set the save file to" << saveFile;
-			success = true;
+			auto name = data.toString();
+			auto path = saveDirectory + name;
+			if (QFileInfo::exists(path)) {
+				success = false;
+				msg = QString("Save file at '%1' already exists, "
+						"remove it first.").arg(path).toUtf8();
+			} else {
+				saveFile = name;
+				qInfo().noquote() << "Client at" << client->address() 
+					<< "set the save file to" << saveFile;
+				success = true;
+			}
 		} else if (param == "save-directory") {
 			saveDirectory = data.toString();
 			qInfo().noquote() << "Client at" << client->address() 
@@ -693,6 +699,10 @@ void Server::handleClientStartRecordingMessage(Client *client)
 				 */
 				createFile();
 
+				/* Retrieve new data available from the source */
+				QObject::connect(source, &datasource::BaseSource::dataAvailable,
+						this, &Server::handleNewDataAvailable);
+
 				/* Install handler for dealing with when the source stream starts. */
 				QObject::connect(source, &datasource::BaseSource::streamStarted,
 						this, [this, client](bool success, const QString& msg) -> void {
@@ -722,6 +732,11 @@ void Server::handleClientStopRecordingMessage(Client *client)
 	QByteArray msg;
 	if (source) {
 		if (file) {
+
+			/* Remove handler for new data */
+			QObject::disconnect(source, &datasource::BaseSource::dataAvailable,
+					this, &Server::handleNewDataAvailable);
+
 			/* Install handler for dealing with when the source stream stops. */
 			QObject::connect(source, &datasource::BaseSource::streamStopped,
 					this, [this, client](bool success, const QString& msg) -> void {
@@ -731,6 +746,7 @@ void Server::handleClientStopRecordingMessage(Client *client)
 			/* Request that the source stop its stream. */
 			emit requestSourceStopStream();
 			return;
+
 		} else {
 			msg = "Cannot stop recording, there is no recording to stop.";
 		}
@@ -827,6 +843,8 @@ void Server::checkRecordingFinished()
 void Server::handleRecordingFinished(double length)
 {
 	QObject::disconnect(source, &datasource::BaseSource::streamStopped, 0, 0);
+	QObject::disconnect(source, &datasource::BaseSource::dataAvailable,
+			this, &Server::handleNewDataAvailable);
 	emit requestSourceStopStream();
 	qInfo().noquote() << length << "seconds of data finished streaming to data file.";
 	file.reset(nullptr);
