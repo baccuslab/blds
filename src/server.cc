@@ -108,6 +108,14 @@ void Server::readConfigFile()
 				DefaultReadInterval);
 		readInterval = DefaultReadInterval;
 	}
+	
+	/* Maximum chunk size for data requests. */
+	maxRequestChunkSize = settings.value("max-chunk-size", 
+			MaximumDataRequestChunkSize).toDouble(&ok);
+	if (!ok) {
+		qWarning("Invalid maximum data chunk size in blds.conf, using default of %0.2f",
+				MaximumDataRequestChunkSize);
+	}
 
 	/* Use default save directory to start */
 	saveDirectory = DefaultSaveDirectory;
@@ -332,7 +340,6 @@ void Server::initSource()
 				sourceStatus.swap(newStatus);
 			});
 
-
 	/*
 	 * Pass messages indicating a client request for
 	 * some state change, parameter change, etc from the 
@@ -357,14 +364,25 @@ void Server::initSource()
 			this, &Server::handleSourceError);
 
 	/*
-	 * Place the source in a background thread. This may end
-	 * up being irrelevant and unnecessary, because of Qt's 
-	 * asynchronous event loop.
+	 * Request the source's status before possibly moving to 
+	 * a background thread.
+	 *
+	 * This is a work-around to deal with a fundamental lack of
+	 * thread-safety in the HDF5 library. Very core components of
+	 * the library (such as fundamental datatype objects) are not at 
+	 * all thread safe, causing subtle race conditions. Rather than
+	 * building the library as thread-safe (which precludes using
+	 * the C++ API) or using a different file format, for now just
+	 * do NOT move the source do a background thread if it's a file.
+	 * Other sources are indeed in background threads.
 	 */
-	source->moveToThread(sourceThread);
 	emit requestSourceInitialize();
 	emit requestSourceStatus();
 
+
+	if (sourceStatus["source-type"] != "file") {
+		source->moveToThread(sourceThread);
+	}
 }
 
 void Server::deleteSource()
@@ -471,7 +489,20 @@ void Server::handleSourceError(const QString& msg)
 void Server::handleNewDataAvailable(datasource::Samples samples)
 {
 	/* Append data to file */
-	file->setData(file->nsamples(), file->nsamples() + samples.n_rows, samples);
+	try {
+		file->setData(file->nsamples(), file->nsamples() + samples.n_rows, samples);
+	} catch (H5::Exception& e) {
+		/* Error writing data to file. */
+		for (auto client : clients) {
+			client->sendErrorMessage(QString("An error occurred writing "
+						"data to the recording file %1").arg(
+						e.getDetailMsg().data()).toUtf8());
+			client->deleteLater();
+		}
+		emit requestSourceStopStream();
+		deleteSource();
+		return;
+	}
 
 	if (nclients) {
 		sendDataToClients(samples);
@@ -483,30 +514,45 @@ void Server::handleNewDataAvailable(datasource::Samples samples)
 
 void Server::sendDataToClients(datasource::Samples& samples)
 {
-	/* Construct the current frame */
+	/* Gather current timing information */
 	auto sr = file->sampleRate();
 	auto stopSample = file->nsamples();
 	auto startSample = stopSample - samples.n_rows;
 	auto start = static_cast<float>(startSample / sr);
 	auto stop = static_cast<float>(stopSample / sr);
+
+	/* Construct the current frame. This is not a target for optimization.
+	 * This uses the move-constructor of the underlying data, so
+	 * is very fast.
+	 */
 	DataFrame frame {start, stop, std::move(samples) };
-
-	datasource::Samples tmpSamples;
-
-	/* Send any available data to clients. */
-	for (auto *client : clients) {
-
-		/* Handle clients requesting everything */
-		if (client->requestedAllData())
+	for (auto client : clients) {
+		if (client->requestedAllData()) {
 			client->sendDataFrame(frame);
+		}
+	}
+}
 
-		/* Handle any requests that can currently be serviced. */
-		while (client->numServicableRequests(stop) > 0) {
+void Server::servicePendingDataRequests(double time)
+{
+	/* Service any outstanding request for data that can now be filled. */
+	auto sr = file->sampleRate();
+	datasource::Samples samples;
+	for (auto client : clients) {
+		while (client->numServicableRequests(time) > 0) {
 			auto request = client->nextPendingRequest();
 			auto begin = static_cast<int>(request.start * sr);
 			auto end = static_cast<int>(request.stop * sr);
-			file->data(begin, end, tmpSamples);
-			client->sendDataFrame({request.start, request.stop, std::move(tmpSamples)});
+			try {
+				file->data(begin, end, samples);
+			} catch (H5::Exception& err) {
+				client->sendErrorMessage(QString("Could not read requested "
+							"data from file: %1").arg(
+							err.getDetailMsg().data()).toUtf8());
+				continue;
+			}
+			client->sendDataFrame({request.start, request.stop, 
+					std::move(samples)});
 		}
 	}
 }
@@ -766,6 +812,17 @@ void Server::handleClientDataRequest(Client *client, float start, float stop)
 					"Cannot request more data than will exist in the recording");
 		} else {
 
+			/* Basic verification of the request */
+			if (!verifyChunkRequest(start, stop)) {
+				client->sendErrorMessage(
+						QString("The requested data chunk is invalid. Both values must "
+						"be positive, the second less than the first, and the resulting "
+						" chunk size must be less than %1. The request was for [%2, %3)"
+						).arg(maxRequestChunkSize).arg(start, 0, 'f', 1).arg(
+						stop, 0, 'f', 1).toUtf8());
+				return;
+			}
+
 			if (file->length() >= stop) {
 
 				/* If data is currently available, send it immediately */
@@ -773,7 +830,15 @@ void Server::handleClientDataRequest(Client *client, float start, float stop)
 				auto startSample = static_cast<int>(start * sr);
 				auto endSample = static_cast<int>(stop * sr);
 				DataFrame::Samples data;
-				file->data(startSample, endSample, data);
+
+				try {
+					file->data(startSample, endSample, data);
+				} catch (H5::Exception& e) {
+					client->sendErrorMessage(QString("Could not read data "
+								"from recording file: %1").arg(
+								e.getDetailMsg().data()).toUtf8());
+					return;
+				}
 				client->sendDataFrame(DataFrame{start, stop, std::move(data)});
 
 			} else {
@@ -849,5 +914,12 @@ void Server::handleRecordingFinished(double length)
 	qInfo().noquote() << length << "seconds of data finished streaming to data file.";
 	file.reset(nullptr);
 	saveFile.clear();
+}
+
+bool Server::verifyChunkRequest(double start, double stop)
+{
+	return ( (start >= 0) && 
+			(stop > (start + (1 / sourceStatus["sample-rate"].toDouble()))) && 
+			((stop - start) <= maxRequestChunkSize));
 }
 

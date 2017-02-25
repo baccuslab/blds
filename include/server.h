@@ -69,6 +69,9 @@ class Server : public QObject {
 
 	/*! Timestamp format for creating default filenames. */
 	const QString DefaultSaveFormat = "yyyy-MM-ddTHH-mm-ss";
+
+	/*! Maximum sized chunks to accept requests, in seconds. */
+	const double MaximumDataRequestChunkSize = 10.0;
 	
 	public:
 
@@ -348,7 +351,20 @@ class Server : public QObject {
 		/* Send data to any clients as it arrives. */
 		void sendDataToClients(datasource::Samples& samples);
 
+		/* Service any pending requests for data that have now
+		 * become available.
+		 */
+		void servicePendingDataRequests(double time);
+
+		/* Check if the the server has collected enough data to 
+		 * satisfy the requested length of the recording.
+		 */
 		void checkRecordingFinished();
+
+		/* Return true if the given request is considered valid,
+		 * and false otherwise.
+		 */
+		bool verifyChunkRequest(double start, double stop);
 
 		/* Thread in which the source object lives. */
 		QThread *sourceThread;
@@ -370,6 +386,9 @@ class Server : public QObject {
 
 		/* Maximum number of connections. */
 		int maxConnections;
+
+		/* Maximum size of a data chunk to accept a request for, in seconds. */
+		double maxRequestChunkSize;
 
 		/* List of connected remote clients. */
 		QList<Client*> clients;

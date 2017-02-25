@@ -95,7 +95,7 @@ class Client : public QObject {
 		 */
 		DataRequest nextPendingRequest();
 
-		/* Return the number of servicable requests, based on the time.
+		/*! Return the number of servicable requests, based on the time.
 		 *
 		 * \param time Requests that end before this time are considered servicable.
 		 */
