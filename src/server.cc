@@ -20,8 +20,6 @@ Server::Server(QObject* parent) :
 	initStatusServer();
 	QObject::connect(this, &Server::recordingFinished,
 			this, &Server::handleRecordingFinished);
-	sourceThread = new QThread(this);
-	sourceThread->start();
 }
 
 Server::~Server()
@@ -41,7 +39,8 @@ Server::~Server()
 	/* Delete source object and stop background thread */
 	if (source)
 		source->deleteLater();
-	sourceThread->quit();
+	if (sourceThread)
+		sourceThread->quit();
 }
 
 /*
@@ -363,24 +362,38 @@ void Server::initSource()
 	QObject::connect(source, &datasource::BaseSource::error,
 			this, &Server::handleSourceError);
 
-	/*
-	 * Request the source's status before possibly moving to 
-	 * a background thread.
-	 *
-	 * This is a work-around to deal with a fundamental lack of
-	 * thread-safety in the HDF5 library. Very core components of
-	 * the library (such as fundamental datatype objects) are not at 
-	 * all thread safe, causing subtle race conditions. Rather than
-	 * building the library as thread-safe (which precludes using
-	 * the C++ API) or using a different file format, for now just
-	 * do NOT move the source do a background thread if it's a file.
-	 * Other sources are indeed in background threads.
+	/* Request that the source initialize and get its status.
+	 * This is done before potentially moving the source to
+	 * the new thread so that we can check if it's a FileSource
+	 * before starting the thread.
 	 */
 	emit requestSourceInitialize();
 	emit requestSourceStatus();
 
-
+	/* Only move the source to a background thread if it is 
+	 * NOT a FileSource.
+	 *
+	 * This is a work-around to deal with a fundamental lack of
+	 * thread-safety in the HDF5 library. Very core components of
+	 * the library (such as fundamental datatype objects) are not at 
+	 * all thread safe, causing subtle race conditions. These occur
+	 * even though the Server only reads from the source file,
+	 * all reads/writes of the recording file occur in this main
+	 * thread, and *these are completely different file objects*.
+	 * It appears the HDF5 reference implementation maintains some
+	 * global objects which are manipulated in a non-threadsafe 
+	 * way, and these are shared between most or all library calls.
+	 *
+	 * Rather than build the library in threadsafe mode, which 
+	 * precludes using the C++ interface (and thus the entire
+	 * libdatafile shared library), just use a single thread 
+	 * in that case. This may hurt performance a bit, especially
+	 * when clients request large chunks of data, but in the
+	 * case of replaying an old file, performance is not crucial.
+	 */
 	if (sourceStatus["source-type"] != "file") {
+		sourceThread = new QThread(this);
+		sourceThread->start();
 		source->moveToThread(sourceThread);
 	}
 }
