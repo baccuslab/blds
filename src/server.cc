@@ -659,10 +659,19 @@ void Server::handleClientSetServerParamMessage(Client *client,
 				success = true;
 			}
 		} else if (param == "save-directory") {
-			saveDirectory = data.toString();
-			qInfo().noquote() << "Client at" << client->address() 
-				<< "set the save directory to" << saveDirectory;
-			success = true;
+			auto dir = data.toString();
+			if (QFileInfo::exists(dir)) {
+				saveDirectory = dir;
+				qInfo().noquote() << "Client at" << client->address() 
+					<< "set the save directory to" << saveDirectory;
+				success = true;
+			} else {
+				qWarning().noquote() << "Requested save directory" 
+					<<  dir << "does not exist.";
+				msg = QString("Requested save directory '%1' does not"
+						" exist.").arg(dir).toUtf8();
+				success = false;
+			}
 		} else if (param == "recording-length") {
 			recordingLength = data.value<quint32>();
 			qInfo().noquote() << "Client at" << client->address() 
@@ -722,6 +731,11 @@ void Server::handleClientGetServerParamMessage(Client *client, const QByteArray&
 void Server::handleClientSetSourceParamMessage(Client *client, 
 		const QByteArray& param, const QVariant& data)
 {
+	if (!source) {
+		client->sendSourceSetResponse(param, false,
+				"There is no data source to set parameters for.");
+		return;
+	}
 	/* Connect handler for the response to notify the correct client. */
 	QObject::connect(source, &datasource::BaseSource::setResponse,
 			this, [this, client](const QString& param, bool success, 

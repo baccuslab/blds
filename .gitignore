@@ -7,3 +7,6 @@ build/*
 *.o
 blds
 doc/*
+debug/*
+release/*
+*.rc
