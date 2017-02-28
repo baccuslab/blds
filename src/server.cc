@@ -469,6 +469,10 @@ void Server::handleSourceStreamStarted(Client *client, bool success, const QStri
 		qInfo().noquote() << "Recording started by client at" << client->address();
 		qInfo().noquote() << "Recording data to" << saveDirectory + saveFile;
 	} else {
+		file.reset(nullptr);
+		saveFile.clear();
+		QObject::disconnect(source, &datasource::BaseSource::dataAvailable,
+				this, &Server::handleNewDataAvailable);
 		qWarning().noquote() << "Could not start recording:" << msg;
 	}
 	client->sendStartRecordingResponse(success, msg.toUtf8());

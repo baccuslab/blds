@@ -15,6 +15,10 @@ INCLUDEPATH += . \
 	../libdata-source/include \
 	/usr/local/include
 
+linux {
+	INCLUDEPATH += /usr/include/hdf5/serial
+}
+
 DEFINES += BLDS_VERSION=\\\"$$VERSION\\\"
 
 QT += core network concurrent
@@ -34,6 +38,10 @@ mac {
 }
 
 LIBS += -L../libdata-source/lib -L/usr/local/lib -L../libdatafile/lib
+linux {
+	LIBS += -L/usr/lib/x86_64-linux-gnu/hdf5/serial
+}
+
 win32 {
 	CONFIG += embed_manifest_exe console
 	LIBS += -ldata-source0 -ldatafile0 -lhdf5_cpp -lhdf5
