@@ -354,7 +354,7 @@ class Server : public QObject {
 		/* Service any pending requests for data that have now
 		 * become available.
 		 */
-		void servicePendingDataRequests(double time);
+		void servicePendingDataRequests();
 
 		/* Check if the the server has collected enough data to 
 		 * satisfy the requested length of the recording.

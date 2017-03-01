@@ -523,6 +523,7 @@ void Server::handleNewDataAvailable(datasource::Samples samples)
 
 	if (nclients) {
 		sendDataToClients(samples);
+		servicePendingDataRequests();
 	}
 
 	/* Check if the recording is finished */
@@ -550,13 +551,14 @@ void Server::sendDataToClients(datasource::Samples& samples)
 	}
 }
 
-void Server::servicePendingDataRequests(double time)
+void Server::servicePendingDataRequests()
 {
 	/* Service any outstanding request for data that can now be filled. */
 	auto sr = file->sampleRate();
+	auto currentTime = file->length();
 	datasource::Samples samples;
 	for (auto client : clients) {
-		while (client->numServicableRequests(time) > 0) {
+		while (client->numServicableRequests(currentTime) > 0) {
 			auto request = client->nextPendingRequest();
 			auto begin = static_cast<int>(request.start * sr);
 			auto end = static_cast<int>(request.stop * sr);
