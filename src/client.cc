@@ -305,6 +305,15 @@ void Client::sendErrorMessage(const QByteArray& msg)
 void Client::addPendingDataRequest(float start, float stop)
 {
 	m_pendingRequests.append({ start, stop });
+
+	/* Keep elements sorted by end time of the request, so
+	 * that requests that complete first are serviced first.
+	 */
+	std::sort(m_pendingRequests.begin(), m_pendingRequests.end(),
+			[](const Client::DataRequest& first, 
+				const Client::DataRequest& second) -> bool {
+					return first.stop < second.stop;
+			});
 }
 
 void Client::setRequestedAllData(bool requested)

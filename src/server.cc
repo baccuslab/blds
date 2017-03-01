@@ -560,10 +560,10 @@ void Server::servicePendingDataRequests()
 			auto end = static_cast<int>(request.stop * sr);
 			try {
 				file->data(begin, end, samples);
-			} catch (H5::Exception& err) {
+			} catch (std::logic_error& e) {
 				client->sendErrorMessage(QString("Could not read requested "
 							"data from file: %1").arg(
-							err.getDetailMsg().data()).toUtf8());
+							e.what()).toUtf8());
 				continue;
 			}
 			client->sendDataFrame({request.start, request.stop, 
@@ -852,20 +852,19 @@ void Server::handleClientDataRequest(Client *client, float start, float stop)
 				return;
 			}
 
-			if (file->length() >= stop) {
+			auto sr = file->sampleRate();
+			auto endSample = static_cast<int>(stop * sr);
+			if (file->nsamples() >= endSample) {
 
 				/* If data is currently available, send it immediately */
-				auto sr = file->sampleRate();
 				auto startSample = static_cast<int>(start * sr);
-				auto endSample = static_cast<int>(stop * sr);
 				DataFrame::Samples data;
 
 				try {
 					file->data(startSample, endSample, data);
-				} catch (H5::Exception& e) {
+				} catch (std::logic_error& e) {
 					client->sendErrorMessage(QString("Could not read data "
-								"from recording file: %1").arg(
-								e.getDetailMsg().data()).toUtf8());
+								"from recording file: %1").arg(e.what()).toUtf8());
 					return;
 				}
 				client->sendDataFrame(DataFrame{start, stop, std::move(data)});
