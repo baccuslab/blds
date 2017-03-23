@@ -185,7 +185,8 @@ void Server::serveSourceStatus(Tufao::HttpServerRequest& request,
 	}
 	response.writeHead(200, "OK");
 	if (request.method() == "GET") {
-		response.write(QJsonDocument(QJsonObject::fromVariantMap(sourceStatus)).toJson());
+		response.write(QJsonDocument(
+					QJsonObject::fromVariantMap(sourceStatus)).toJson());
 	}
 	response.end();
 }
@@ -234,7 +235,10 @@ void Server::serveStatus(Tufao::HttpServerRequest& request,
 				{ "recording-position", recordingPosition },
 				{ "source-exists", sourceExists },
 				{ "source-type", sourceType },
-				{ "source-location", sourceExists ? sourceStatus["location"].toString() : "" },
+				{ "device-type", (sourceExists ? 
+						sourceStatus["device-type"].toString() : "") },
+				{ "source-location", (sourceExists ? 
+						sourceStatus["location"].toString() : "") },
 				{ "clients", dc }
 		};
 
@@ -374,15 +378,19 @@ void Server::deleteSource()
 	source = nullptr;
 }
 
-void Server::handleSourceGetResponse(const QString& param, bool success,
-		const QVariant& data)
+void Server::handleSourceGetResponse(Client* client, const QString& param, 
+		bool success, const QVariant& data)
 {
+	/* Disconnect this handler. */
+	QObject::disconnect(source, &datasource::BaseSource::getResponse, 0, 0);
+
 	if (success) {
 		sourceStatus.insert(param, data);
 	} else {
 		qWarning().noquote() << "Error retrieving parameter from source:" 
 			<< param;
 	}
+	client->sendSourceGetResponse(param.toUtf8(), success, data);
 }
 
 void Server::handleSourceSetResponse(Client *client,
@@ -751,15 +759,21 @@ void Server::handleClientSetSourceParamMessage(Client *client,
 
 void Server::handleClientGetSourceParamMessage(Client *client, const QByteArray& param)
 {
-	if (source) {
-		/* Send the client the source parameter directly from the sourceStatus map. */
-		auto name = QString::fromUtf8(param);
-		bool valid = sourceStatus.contains(name);
-		QVariant data = sourceStatus.value(name, QByteArray("Unknown parameter: ") + param);
-		client->sendSourceGetResponse(param, valid, data);
-	} else {
-		client->sendSourceGetResponse(param, false, "There is no active data source.");
+	if (!source) {
+		client->sendSourceGetResponse(param, false,
+				"There is no active data source.");
+		return;
 	}
+
+	/* Connect handler for the response to notify the correct client. */
+	QObject::connect(source, &datasource::BaseSource::getResponse,
+			this, [this, client](const QString& param, bool valid,
+				const QVariant& data) -> void {
+			handleSourceGetResponse(client, param, valid, data);
+		});
+
+	/* Request the parameter */
+	emit requestSourceGet(param);
 }
 
 void Server::handleClientStartRecordingMessage(Client *client)

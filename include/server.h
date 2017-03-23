@@ -256,7 +256,8 @@ class Server : public QObject {
 		 * 	encoded as a variant. If the request failed, this contains an error message,
 		 * 	encoded as a QByteArray.
 		 */
-		void handleSourceGetResponse(const QString& param, bool valid, const QVariant& data);
+		void handleSourceGetResponse(Client* client, const QString& param, 
+				bool valid, const QVariant& data);
 
 		/*! Handle a response to a request to set a named parameter of the source.
 		 *
