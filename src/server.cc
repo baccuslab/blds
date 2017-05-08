@@ -313,7 +313,8 @@ void Server::createFile()
 	auto path = fullpath.toStdString();
 	auto type = sourceStatus["device-type"].toString();
 	if (type.startsWith("hidens")) {
-		auto f = new hidensfile::HidensFile(path);
+		auto nchannels = sourceStatus["nchannels"].toInt();
+		auto f = new hidensfile::HidensFile(path, "hidens", nchannels);
 		file.reset(f);
 		f->setConfiguration(
 				sourceStatus["configuration"].value<QConfiguration>().toStdVector());
