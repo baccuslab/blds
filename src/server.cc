@@ -324,18 +324,17 @@ void Server::createFile()
 	/* Create the data file */
 	auto path = fullpath.toStdString();
 	auto type = sourceStatus["device-type"].toString();
-	try {
-		if (type.startsWith("hidens")) {
-			auto f = new hidensfile::HidensFile(path);
-			file.reset(f);
-			f->setConfiguration(
-					sourceStatus["configuration"].value<QConfiguration>().toStdVector());
-		} else {
-			file.reset(new datafile::DataFile(path));
-			if (sourceStatus["has-analog-output"].toBool()) {
-				int size = sourceStatus["analog-output"].value<QVector<double>>().size();
-				file->setAnalogOutputSize(size);
-			}
+	if (type.startsWith("hidens")) {
+		auto nchannels = sourceStatus["nchannels"].toInt();
+		auto f = new hidensfile::HidensFile(path, "hidens", nchannels);
+		file.reset(f);
+		f->setConfiguration(
+				sourceStatus["configuration"].value<QConfiguration>().toStdVector());
+	} else {
+		file.reset(new datafile::DataFile(path));
+		if (sourceStatus["has-analog-output"].toBool()) {
+			int size = sourceStatus["analog-output"].value<QVector<double>>().size();
+			file->setAnalogOutputSize(size);
 		}
 	} catch (H5::FileIException& e) {
 		throw std::invalid_argument("Could not create data file,"
