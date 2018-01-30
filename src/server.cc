@@ -296,8 +296,20 @@ void Server::createFile()
 	if (saveFile.isNull() || (saveFile.size() == 0)) {
 		saveFile = QDateTime::currentDateTime().toString(DefaultSaveFormat);
 	}
-	if (!saveFile.endsWith(".h5") && !saveFile.endsWith(".hdf5")) {
+	if (!saveFile.endsWith(".h5") || !saveFile.endsWith(".hdf5")) {
 		saveFile.append(".h5");
+	}
+
+	/* Strip off any extra path components in the the filename itself, and
+	 * create them if they don't exist. Don't update the save directory.
+	 */
+	auto ix = saveFile.lastIndexOf("/");
+	if (ix != -1) {
+		QDir saveDir(saveDirectory);
+		auto path = saveFile.left(ix);
+		if (!saveDir.exists(path)) {
+			saveDir.mkpath(path);
+		}
 	}
 
 	/* Fail if the client requested an existing file.
@@ -312,17 +324,22 @@ void Server::createFile()
 	/* Create the data file */
 	auto path = fullpath.toStdString();
 	auto type = sourceStatus["device-type"].toString();
-	if (type.startsWith("hidens")) {
-		auto f = new hidensfile::HidensFile(path);
-		file.reset(f);
-		f->setConfiguration(
-				sourceStatus["configuration"].value<QConfiguration>().toStdVector());
-	} else {
-		file.reset(new datafile::DataFile(path));
-		if (sourceStatus["has-analog-output"].toBool()) {
-			int size = sourceStatus["analog-output"].value<QVector<double>>().size();
-			file->setAnalogOutputSize(size);
+	try {
+		if (type.startsWith("hidens")) {
+			auto f = new hidensfile::HidensFile(path);
+			file.reset(f);
+			f->setConfiguration(
+					sourceStatus["configuration"].value<QConfiguration>().toStdVector());
+		} else {
+			file.reset(new datafile::DataFile(path));
+			if (sourceStatus["has-analog-output"].toBool()) {
+				int size = sourceStatus["analog-output"].value<QVector<double>>().size();
+				file->setAnalogOutputSize(size);
+			}
 		}
+	} catch (H5::FileIException& e) {
+		throw std::invalid_argument("Could not create data file,"
+				" most likely path is not valid.");
 	}
 	file->setGain(sourceStatus["gain"].toFloat());
 	file->setOffset(sourceStatus["adc-range"].toFloat());
@@ -779,41 +796,45 @@ void Server::handleClientGetSourceParamMessage(Client *client, const QByteArray&
 void Server::handleClientStartRecordingMessage(Client *client)
 {
 	QByteArray msg;
-	if (source) {
-		if (!file) {
-			try {
-				/* Create recording file. This throws a std::invalid_argument
-				 * if the file already exists or couldn't be created for
-				 * some other reason.
-				 */
-				createFile();
-
-				/* Retrieve new data available from the source */
-				QObject::connect(source, &datasource::BaseSource::dataAvailable,
-						this, &Server::handleNewDataAvailable);
-
-				/* Install handler for dealing with when the source stream starts. */
-				QObject::connect(source, &datasource::BaseSource::streamStarted,
-						this, [this, client](bool success, const QString& msg) -> void {
-							handleSourceStreamStarted(client, success, msg);
-					});
-
-				/* Request that the source start. */
-				emit requestSourceStartStream();
-				return;
-
-			} catch (std::invalid_argument& err) {
-				msg = err.what();
-			}
-		} else {
-			msg = "Cannot create recording, one is already active.";
-		}
-	} else {
+	if (!source) {
 		msg = "Cannot start recording, there is no active data source.";
+		qWarning().noquote() << msg;
+		client->sendStartRecordingResponse(false, msg);
+		return;
 	}
-	
-	qWarning().noquote() << msg;
-	client->sendStartRecordingResponse(false, msg);
+
+	if (file) {
+		msg = "Cannot create recording, one is already active.";
+		qWarning().noquote() << msg;
+		client->sendStartRecordingResponse(false, msg);
+		return;
+	}
+
+	try {
+		/* Create recording file. This throws a std::invalid_argument
+		 * if the file already exists or couldn't be created for
+		 * some other reason.
+		 */
+		createFile();
+
+		/* Retrieve new data available from the source */
+		QObject::connect(source, &datasource::BaseSource::dataAvailable,
+				this, &Server::handleNewDataAvailable);
+
+		/* Install handler for dealing with when the source stream starts. */
+		QObject::connect(source, &datasource::BaseSource::streamStarted,
+				this, [this, client](bool success, const QString& msg) -> void {
+					handleSourceStreamStarted(client, success, msg);
+			});
+
+		/* Request that the source start. */
+		emit requestSourceStartStream();
+
+	} catch (std::invalid_argument& err) {
+		msg = err.what();
+		qWarning().noquote() << msg;
+		client->sendStartRecordingResponse(false, msg);
+	}
 }
 
 void Server::handleClientStopRecordingMessage(Client *client)
