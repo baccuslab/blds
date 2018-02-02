@@ -296,7 +296,9 @@ void Server::createFile()
 	if (saveFile.isNull() || (saveFile.size() == 0)) {
 		saveFile = QDateTime::currentDateTime().toString(DefaultSaveFormat);
 	}
-	if (!saveFile.endsWith(".h5") || !saveFile.endsWith(".hdf5")) {
+
+	/* Verify extension. */
+	if (!saveFile.endsWith(".h5") && !saveFile.endsWith(".hdf5")) {
 		saveFile.append(".h5");
 	}
 
@@ -306,9 +308,15 @@ void Server::createFile()
 	auto ix = saveFile.lastIndexOf("/");
 	if (ix != -1) {
 		QDir saveDir(saveDirectory);
-		auto path = saveFile.left(ix);
-		if (!saveDir.exists(path)) {
-			saveDir.mkpath(path);
+		auto extraPath = saveFile.left(ix);
+
+		if (!saveDir.exists(extraPath)) {
+			if (!saveDir.mkpath(extraPath)) {
+				auto msg = QString("Could not create requested"
+						" save directory: %1. Permissions error?").arg(
+						saveDir.absoluteFilePath(extraPath));
+				throw std::invalid_argument(msg.toStdString());
+			}
 		}
 	}
 
@@ -317,12 +325,13 @@ void Server::createFile()
 	 * likely won't already exist.
 	 */
 	auto fullpath = saveDirectory + "/" + saveFile;
-	if (QFileInfo::exists(fullpath)) {
+	QFileInfo pathInfo(fullpath);
+	if (pathInfo.exists()) {
 		throw std::invalid_argument("The requested file already exists, remove it first.");
 	}
 
 	/* Create the data file */
-	auto path = fullpath.toStdString();
+	auto path = pathInfo.absoluteFilePath().toStdString();
 	auto type = sourceStatus["device-type"].toString();
 	try {
 		if (type.startsWith("hidens")) {
@@ -489,7 +498,7 @@ void Server::handleSourceStreamStarted(Client *client, bool success, const QStri
 	QObject::disconnect(source, &datasource::BaseSource::streamStarted, 0, 0);
 	if (success) {
 		qInfo().noquote() << "Recording started by client at" << client->address();
-		qInfo().noquote() << "Recording data to" << saveDirectory + saveFile;
+		qInfo().noquote() << "Recording data to" << saveDirectory + "/" + saveFile;
 	} else {
 		file.reset(nullptr);
 		saveFile.clear();
@@ -695,10 +704,20 @@ void Server::handleClientSetServerParamMessage(Client *client,
 				success = true;
 			} else {
 				qWarning().noquote() << "Requested save directory" 
-					<<  dir << "does not exist.";
-				msg = QString("Requested save directory '%1' does not"
-						" exist.").arg(dir).toUtf8();
-				success = false;
+					<<  dir << "does not exist, creating.";
+				QDir d(dir);
+				if (d.mkpath(".")) {
+					success = true;
+					qInfo().noquote() << "Created requested save directory"
+						<< dir;
+					saveDirectory = d.absolutePath();
+				} else {
+					success = false;
+					qWarning().noquote() << "Could not create requested"
+						" save directory" << dir;
+					msg = QString("Could not create requested "
+							"directory: %1").arg(dir).toUtf8();
+				}
 			}
 		} else if (param == "recording-length") {
 			recordingLength = data.value<quint32>();
